@@ -1,0 +1,575 @@
+# MCART
+# Markov Chain Analysis based Reconstruction of TMCRA
+
+
+
+
+run_mcart<-function(export=FALSE,ngen=500,mut_rate=0.01,sn=c(0.25,0.5,0.25),tstv_file="tstv_counts.txt",thinning=NULL,s_0=1,findbestK=TRUE,findfit=TRUE,y_lim=NULL,silent=TRUE,Kratio=2,Kvector=NULL,creatediagram=TRUE,plot_label=NULL)
+	{
+	if(creatediagram)
+		{
+		cat("Creating diagram of Markov Chain...",sep="\n")
+		cat("If you receive an error after this line, set the flag 'creatediagram' to FALSE.",sep="\n")
+		if("diagram" %in% rownames(installed.packages()) == FALSE) {install.packages("diagram",repos='http://cran.us.r-project.org')}
+		library("diagram")
+		if(export)
+			{
+			mcart_mcdiagram(export="pdf",mycol="grey80",yshift=0,plot_ab=FALSE,myfont=4,mycex=1.25)
+			mcart_mcdiagram(export="wmf",mycol="grey80",yshift=0,plot_ab=FALSE,myfont=4,mycex=1.25)
+			mcart_mcdiagram(export="pdf",mycol="grey80",yshift=0,plot_ab=TRUE,myfont=4,mycex=1.25)
+			mcart_mcdiagram(export="wmf",mycol="grey80",yshift=0,plot_ab=TRUE,myfont=4,mycex=1.25)
+			# plot_mcdiagram_2states(export=exporttype,mycol="grey80",yshift=0.075)
+			}else{
+			mcart_mcdiagram(export=NULL,mycol="grey80",yshift=0,plot_ab=FALSE,myfont=4,mycex=1.25)
+			}
+		}
+	#
+	if(findfit)
+		{
+		if(file.exists(tstv_file))
+			{
+			mcart_sn(tstvfile=tstv_file)
+			sn		<- svector
+			}else{
+			cat("File 'tstv_counts.txt' not present in working directory.",sep="\n")
+			cat("Assuming user provided an input vector to sn-flag.",sep="\n")
+			if(is.null("sn"))
+				{
+				return(cat("Error: no input to sn flag. Aborting.",sep="\n")) 
+				}
+			}
+		}
+	if(findbestK&findfit)
+		{
+		cat("Finding K-value with best fit between observed and expected p_S, p_Tv and p_Ts values...",sep="\n")
+		if(is.null(Kvector)){Kvector		<- seq(0.5,4,0.01)}
+		Kvector			<<- Kvector
+		minvector		<<- vector()
+		mylist			<<- list()
+		for(indexnr in c(1:length(Kvector)))
+			{
+			Kratio		<- Kvector[indexnr]
+			if(!silent){cat(paste("K = ",Kratio,sep=""),sep="\n")}
+			mcart_predict(K=Kratio,s0=s_0,n_gen=ngen,u=mut_rate,thin=thinning,silent=TRUE)
+			mcart_findfit(K=Kratio,s_n=sn,silent=TRUE)
+			mylist[[indexnr]]		<<- s
+			names(mylist)[indexnr]	<<- paste("K",Kratio,sep="")
+			minvector[indexnr]		<<- min(s$diffsum,na.rm=TRUE)
+			}
+		bestK		<- which(minvector==min(minvector))
+		Kratio		<- Kvector[bestK] 
+		Kratio		<<- Kratio
+		cat(paste("Most likely K-value: ",Kratio,".",sep=""),sep="\n")
+		}else{
+		cat("The flag 'findbestK' and or 'findfit' is set to FALSE. MCART will not aim to find best K-value.",sep="\n")
+		cat(paste("Specified K-value: ",Kratio,".",sep=""),sep="\n")
+		}
+	#
+	cat("Calculating expected p_S, p_Tv and p_Ts values given specified K...",sep="\n")
+	mcart_predict(K=Kratio,s0=s_0,n_gen=ngen,u=mut_rate,thin=thinning)
+	#
+	if(findfit)
+		{
+		cat("Finding best fit between observed and expected p_S, p_Tv and p_Ts values given specified K...",sep="\n")
+		mcart_findfit(K=Kratio,s_n=sn,silent=FALSE)
+		}
+	#
+	cat("Creating output plots...",sep="\n")
+	if(export)
+		{
+		mcart_correctionplot(export="pdf",n_gen=ngen,u=mut_rate,K=Kratio,addfit=FALSE)
+		mcart_correctionplot(export="wmf",n_gen=ngen,u=mut_rate,K=Kratio,addfit=FALSE)
+		mcart_decayplot(export="pdf",n_gen=ngen,u=mut_rate,K=Kratio,my_ylim=y_lim,addfit=findfit,plotinverse=TRUE,plotlabel=plot_label)
+		mcart_decayplot(export="wmf",n_gen=ngen,u=mut_rate,K=Kratio,my_ylim=y_lim,addfit=findfit,plotinverse=TRUE,plotlabel=plot_label)
+		mcart_Kplot(export="pdf",n_gen=ngen,K=Kratio,plotlabel=plot_label)
+		mcart_Kplot(export="wmf",n_gen=ngen,K=Kratio,plotlabel=plot_label)
+		}else{
+		mcart_decayplot(export=NULL,n_gen=ngen,u=mut_rate,K=Kratio,my_ylim=y_lim,addfit=findfit,plotinverse=TRUE,plotlabel=plot_label)
+		}
+	cat("Analysis finished.",sep="\n")
+	}
+
+mcart_sn<-function(tstvfile="tstv_counts.txt")
+	{
+	cat("Reading file 'tstv_counts.txt'.",sep="\n")
+	mycounts		<-read.table(tstvfile,header=FALSE)
+	# all
+	allsites		<- mycounts$V1[1]
+	allhomo			<- mycounts$V1[7]
+	allhetero		<- mycounts$V1[3]
+	# fixed and heterozygous transitions:
+	ihomo			<- mycounts$V1[9]
+	ihetero			<- mycounts$V1[5]
+	#
+	cat("Calculating proportions...",sep="\n")
+	S				<- round((1-(allhomo+allhetero*0.5)/allsites),4)
+	cat(paste("S = ",S,sep=""),sep="\n")
+	iprop_homo		<- round(ihomo/allhomo,4)
+	cat(paste("iprop_homo = ",iprop_homo,sep=""),sep="\n")
+	iprop_hetero	<- round(ihetero/allhetero,4)
+	cat(paste("iprop_hetero = ",iprop_hetero,sep=""),sep="\n")
+	iprop_mean		<- round(0.5*(iprop_homo+iprop_hetero),4)
+	cat(paste("iprop_mean = ",iprop_mean,sep=""),sep="\n")
+	# S, E, I:
+	svector			<<- c(S,(1-iprop_mean)*(1-S),iprop_mean*(1-S))
+	svectorhetero	<<- c(S,(1-iprop_hetero)*(1-S),iprop_hetero*(1-S))
+	svectorhomo		<<- c(S,(1-iprop_homo)*(1-S),iprop_homo*(1-S))
+	cat("sn vector (S,Tv,Ts) stored as 'svector', 'svectorhetero' and 'svectorhomo'.",sep="\n")
+	}
+
+mcart_predict<-function(export=NULL,K=2,s0=1,n_gen=500,u=0.01,thin=NULL,silent=FALSE)
+	{
+	if(!silent)
+		{
+		cat(paste("Specified s0: ",s0,".",sep=""),sep="\n")
+		cat(paste("Specified K-value: ",K,".",sep=""),sep="\n")
+		cat(paste("Specified mutation rate (per generation): ",u,".",sep=""),sep="\n")
+		cat(paste("Specified number of generations: ",n_gen,".",sep=""),sep="\n")
+		if(!is.null(thin))
+			{
+			cat(paste("Specified thinning parameter: ",thin,".",sep=""),sep="\n")
+			}
+		}
+	# define start vector:
+	start_diff		<- 1-s0
+	start_E			<- 1/(1+K)*start_diff	
+	start_I			<- K/(1+K)*start_diff
+	s0				<- c(s0,start_E,start_I)
+	s0				<<- s0
+	# define transition matrix:
+	b				<- 1/(K+1)*u
+	A				<- b-b^2
+	B				<- 2*K*b-(2*K^2+2*K-1/2)*b^2
+	M				<- matrix(c(1-2*A-B,2*A,B,A,1-2*A,A,B,2*A,1-2*A-B),nrow=3,ncol=3,byrow=TRUE)
+	colnames(M)		<- c("S","E","I")
+	rownames(M)		<- c("S","E","I")
+	M				<<- M
+	# get left eigenvectors:
+	myeigen			<<- eigen(t(M),symmetric=FALSE)					
+	e				<<- myeigen$values								# eigenvalues 
+	v2				<<- myeigen$vectors								# eigenvectors
+	v				<<- v2											# normalize eigenvectors				
+	for(j in c(1:ncol(v)))
+		{
+		v[,j]		<<- round(v[,j]/sum(abs(v[,j])),5) 
+		}
+	# test if eigenvalues and eigenvectors are correct:
+	v_out			<<- matrix(NA,nrow=3,ncol=3)
+	for(j in c(1:ncol(v_out)))
+		{
+		v_out[,j]	<<- e[j]*v[,j]%*%M
+		v_out[,j]	<<- v_out[,j]/sum(abs(v_out[,j])) 
+		}
+	if(any(round(v,2)!=round(v_out,2)))
+		{
+		return(cat("ERROR: eigenvectors appear incorrect.",sep="\n"))
+		}
+	# rewrite s0 as a combination of the eigenvectors:
+	p			<<- solve(a=v,b=s0)
+	s0_rewrite	<- round(p[1]*v[,1]+p[2]*v[,2]+p[3]*v[,3],6)		
+	s0_rewrite	<<- s0_rewrite
+	if(any(round(s0_rewrite,5)!=round(s0,5)))
+		{
+		cat("WARNING: s0 not identical to s0 rewritten as linear combination of eigenvectors. Type 's0' and 'so_rewrite' to observe the difference.",sep="\n")
+		}
+	# because Mv = ev (i.e.: matrix*eigenvector = eigenvalue*eigenvector), matrix multiplication can be avoided by replacing M with eigenvalues 
+	# predict s as function of n using formula: s_n	= e[1]^n*p[1]*v[,1]  +  e[2]^n*p[2]*v[,2]  +  e[3]^n*p[3]*v[,3]
+	if(is.null(thin))
+		{
+		nvec	<<- c(1:n_gen)
+		}else{
+		nvec	<<- seq(1,n_gen,thin)
+		}
+	ndata		<- length(nvec)
+	s			<<- data.frame("S"=rep(NA,ndata+1),"E"=rep(NA,ndata+1),"I"=rep(NA,ndata+1))
+	s[1,]		<<- s0
+	for(i in c(1:ndata))
+		{
+		# Note: 'n+1' makes it look like an recursive formula, but it is not. I just want to include n=0 on the first row.
+		n		<- nvec[i]
+		s[i+1,]	<<- n
+		s[i+1,]	<<- e[1]^n*p[1]*v[,1]  +  e[2]^n*p[2]*v[,2]  +  e[3]^n*p[3]*v[,3]
+		}
+	s$ya		<<- c(0,nvec)
+	#
+	# evaluate distance correction methods:
+	s$nmutations	<<- 2*u*s$ya									# 27-05-2020: true number. Each time step (generation/year) we expect 2u mutations per site (because we compare two sequences, so 1u mutations per site per sequence).  
+	s$nmutations2	<<- 1-s$nmutations
+	s$JC			<<- -(3/4)*log(1-4/3*(1-s$S))					# Jukes-Cantor estimate of evolutionary distance:
+	s$JC2			<<- 1-s$JC
+	s$kimura		<<- -(1/2)*log((1-2*s$I-s$E)*(1-2*s$E)^(1/2))	# Kimura's estimate of evolutionary distance:
+	s$kimura2		<<- 1-s$kimura
+	}
+
+mcart_findfit<-function(K=2,s_n=c(0.25,0.5,0.25),silent=TRUE)
+	{
+	# expects to find dataframe s generated by function mcart_predict
+	# inverse of observed estimates:
+	Sobs		<<- s_n
+	Sobs[2]		<<- 1-s_n[2]
+	Sobs[3]		<<- 1-s_n[3]
+	#
+	# find minimum distance between sn and estimated s values:
+	s$diffS		<<- (s$S-s_n[1])^2
+	s$diffE		<<- (((K+1)/1)*(s$E-s_n[2]))^2			#  (K+1)/1: correction to give each difference the same weight
+	s$diffI		<<-	(((K+1)/K)*(s$I-s_n[3]))^2			#  (K+1)/K: correction to give each difference the same weight
+	s$diffsum	<<- s$diffS+s$diffE+s$diffI
+	mymindiff	<- min(s$diffsum) 
+	my_index	<<- which(s$diffsum==mymindiff)
+	my_tmrca	<<- s$ya[my_index]
+	#my_sdd		<<- s$diffsum[my_index]*10000000	sqrt(minvector)*100
+	my_sdd		<<- round(sqrt(s$diffsum[my_index])*100,5)	# in percent differences
+	#
+	my_indexS	<<- which(s$diffS==min(s$diffS))
+	my_tmrcaS	<<- s$ya[my_indexS]
+	my_indexE	<<- which(s$diffE==min(s$diffE))
+	my_tmrcaE	<<- s$ya[my_indexE]
+	my_indexI	<<- which(s$diffI==min(s$diffI))
+	my_tmrcaI	<<- s$ya[my_indexI]
+	#
+	if(!silent)
+		{
+		cat(paste("Most likely TMRCA: ",my_tmrca-1," generations ago.",sep=""),sep="\n")
+		cat(paste("SSD-score: ",my_sdd,sep=""),sep="\n")
+		}
+	}
+
+mcart_decayplot<-function(export=NULL,n_gen=200,addfit=TRUE,plotinverse=TRUE,plotlabel=NULL,my_ylim=c(0,1),u=0.01,K=2)
+	{
+	if(!is.null(export))
+		{
+		fitlabel	<- ifelse(addfit,"with_fit","no_fit") 
+		if(is.null(plotlabel))
+			{
+			plotname	<- paste("MC",paste("G",n_gen,sep=""),paste("K",K,sep=""),fitlabel,sep=".")
+			}else{
+			plotname	<- paste("MC",plotlabel,paste("G",n_gen,sep=""),paste("K",K,sep=""),fitlabel,sep=".")
+			}
+		if(export=="pdf"){pdf(paste(plotname,"pdf",sep="."),height=6,width=6.5)}
+		if(export=="wmf"){win.metafile(paste(plotname,"wmf",sep="."),height=6,width=6.5)}
+		par(cex.lab=1.5,mar=c(4,5,4,3.5))
+		}
+	plot(s$ya,s$S,ylim=my_ylim,type='l',lwd=2.5,col="black",las=1,xlab="",ylab="")
+	mtext("sequence (dis)similarity",side=2,line=3.5,cex=1.5)
+	mtext("TMCRA (in generations)",side=1,line=2.5,cex=1.5)
+	if(addfit)
+		{
+		abline(v=my_tmrcaS,lty=3,col="black",lwd=0.5)
+		abline(v=my_tmrcaE,lty=3,col="red",lwd=0.5)
+		abline(v=my_tmrcaI,lty=3,col="blue",lwd=0.5)
+		abline(v=my_tmrca,lty=2,col="grey70")
+		mtext("|Observed - expected| (%)",side=4,line=2.25,cex=1.5)
+		}
+	if(plotinverse)
+		{
+		lines(s$ya,1-s$E,lwd=2.5,col="red")
+		lines(s$ya,1-s$I,lwd=2.5,col="blue")
+		}else{
+		lines(s$ya,s$E,lwd=2.5,col="red")
+		lines(s$ya,s$I,lwd=2.5,col="blue")
+		}
+	legend("bottomleft",legend=c("p_S","1-p_Tv","1-p_Ts"),cex=1.5,bty='n',fill=c("black","red","blue"))
+	if(addfit)
+		{
+		points(rep(my_tmrca,3),Sobs,pch=16,cex=1.5,col=c("black","red","blue"))
+		par(new=TRUE)
+		plot(s$diffsum,type='l',col="grey70",lwd=1,xaxt='n',yaxt='n',xlab="",ylab="",ylim=c(0,max(s$diffsum)))
+		lines(s$diffS,type='l',lty=2,xaxt='n',yaxt='n',xlab="",ylab="",col="black")
+		lines(s$diffE,type='l',lty=2,xaxt='n',yaxt='n',xlab="",ylab="",col="red")
+		lines(s$diffI,type='l',lty=2,xaxt='n',yaxt='n',xlab="",ylab="",col="blue")
+		axis(side=4)
+		}
+	mytext	<- paste("u = ",u,"; K = ",K,sep="")
+	mtext(side=3,mytext,cex=1.5,line=0.5)
+	if(!is.null(plotlabel))
+		{
+		mtext(side=3,text=plotlabel,cex=1.5,line=2)
+		}
+	if(!is.null(export))
+		{
+		cat("Plot with TMCRA estimate has been written to:",sep="\n")
+		cat(getwd(),sep="\n")
+		dev.off()
+		}
+	}
+
+mcart_correctionplot<-function(addfit=FALSE,n_gen=500,K=2,export=NULL,u=0.01)
+	{
+	if(!is.null(export))
+		{
+		fitlabel	<- ifelse(addfit,"with_fit","no_fit") 
+		plotname	<- paste("MC",paste("G",n_gen,sep=""),paste("K",K,sep=""),fitlabel,"corrections",sep=".")
+		if(export=="pdf"){pdf(paste(plotname,"pdf",sep="."),height=6,width=8)}
+		if(export=="wmf"){win.metafile(paste(plotname,"wmf",sep="."),height=6,width=8)}
+		par(cex.lab=1.5)
+		}
+	myylim<-c(0,max(s$kimura,na.rm=TRUE))
+	plot(s$ya,s$kimura,type='l',lwd=2,ylim=myylim,ylab="Number of substitutions per site",xlab="TMRCA (number of generations)",col="red",las=1)
+	lines(s$ya,s$JC,type='l',col="green",lwd=2)							# Jukes-Cantor correction
+	lines(s$ya,1-s$S,type='l',col="blue",lwd=2)							# observed in data
+	lines(s$ya,s$nmutations+(1-s0[1]),type='l',col="black",lwd=2,lty=2)	# true number
+	legend("topleft",bty='n',fill=c("blue","black","green","red"),legend=c("Observed in data","True number (2u*x)","True number estimated by JC-correction","True number estimated by K2P-correction"))
+	mytext	<- paste("u = ",u,"; K = ",K,sep="")
+	mtext(side=3,mytext,cex=1.5,line=0.5)
+	if(!is.null(export))
+		{
+		cat("Plot showing accuracy of correction methods has been written to:",sep="\n")
+		cat(getwd(),sep="\n")
+		dev.off()
+		}
+	}
+
+mcart_Kplot<-function(export=NULL,n_gen=500,K=2,plotlabel=NULL)
+	{
+	if(!is.null(export))
+		{
+		if(is.null(plotlabel))
+			{
+			plotname	<- paste("MC",paste("G",n_gen,sep=""),paste("K",K,sep=""),"error",sep=".")
+			}else{
+			plotname	<- paste("MC",plotlabel,paste("G",n_gen,sep=""),paste("K",K,sep=""),"error",sep=".")
+			}
+		if(export=="pdf"){pdf(paste(plotname,"pdf",sep="."),height=6,width=6)}
+		if(export=="wmf"){win.metafile(paste(plotname,"wmf",sep="."),height=6,width=6)}
+		par(cex.lab=1.75,mar=c(4,5,3,1))
+		}
+	plot(Kvector,sqrt(minvector),type='l',lwd=2,ylab="",xlab="K-ratio (a/b)",col="black",las=1)
+	#abline(v=Kvector[which(minvector==min(minvector))],lty=2)
+	abline(h=0,lty=2)
+	mtext("|Observed - expected| (%)",side=2,line=3.5,cex=1.5)
+	if(!is.null(plotlabel))
+		{
+		mtext(side=3,text=plotlabel,cex=1.5,line=1)
+		}
+	if(!is.null(export)){dev.off()}
+	}
+
+# iterative matrix multiplication (note: this is not the same as simulations; it is just a way to check if long-term behaviour is predicted correctly by mcart_predict)	
+mcart_iterative<-function(K=2,s0=c(1,0,0),u=0.01,ngen=500,plotinverse=TRUE,dothin=FALSE,add2state=FALSE,Krate=TRUE,plotdiff=FALSE)
+	{
+	# transition and transversion rates:
+	K			<- K
+	a			<- K/(K+1)*u				# transition rate
+	b			<- 1/(K+1)*u				# transversion rate
+	# transition matrix:
+	row1		<- c((1-a-b)^2+a^2+1/2*b^2,2*b*(1-a-b)+2*a*b,2*a*(1-a-b)+1/2*b^2)
+	row2		<- c(b*(1-a-b)+a*b,(1-a-b)^2+b^2+a^2+2*a*(1-a-b),b*(1-a-b)+a*b)
+	row3		<- c(2*a*(1-a-b)+1/2*b^2,2*b*(1-a-b)+2*a*b,(1-a-b)^2+1/2*b^2+a^2)
+	M			<- rbind(row1,row2,row3)	# transition matrix
+	colnames(M)	<- c("S","E","I")
+	rownames(M)	<- c("S","E","I")
+	#
+	# store data in dataframe v (eventually renamed to Ssim):
+	v			<- data.frame("S"=rep(NA,ngen),"E"=rep(NA,ngen),"I"=rep(NA,ngen))
+	v[1,]		<- s0
+	for (j in c(2:ngen))
+		{
+		if(j%%1000==0){cat(j,sep="\n")}
+		v[j,]	<- as.numeric(v[j-1,]) %*% M 	# this is crucial: which one is the one we want?
+		}
+	# K-ratio:
+	v$K			<- v$I/v$E
+	v$K2		<- v$I/(v$E+v$I)
+	# change in K-ratio over time: 
+	v$Srate		<- NA
+	v$Srate2	<- NA
+	if(Krate)
+		{
+		v$Krate		<- NA
+		for (j in c(2:ngen))
+			{
+			v$Krate[j]	<- v$K[j]/v$K[j-1]	
+			v$Srate[j]	<- v$S[j-1]/v$S[j]
+			v$Srate2[j]	<- v$Srate[j-1]/v$Srate[j]
+			}
+		}
+	if(add2state)
+		{
+		# Compare to 2 state Markov Chain:
+		C			<- 2/3*u-1/3*(u^2)	# from different to same
+		k			<- 2*u-5/3*(u^2)	# from same to different
+		v$S_old		<- NA
+		v$S_old[1]	<- s0[1]
+		for (j in c(2:ngen))
+			{				
+			v$S_old[j] 	<- s0[1]*(1-k-C)^(j-1)+C*((1-k-C)^(j-1)-1)/(-k-C)
+			}
+		}
+	u_a		<- u*K/(K+1)
+	u_b		<- u/(K+1)
+	u_ab	<- u_a+u_b
+	r		<- 1-8/3*u_ab+2*u_ab^2
+	C		<- 2/3*u_ab-1/3*u_ab^2
+	C_a		<- 3*(2/3*u_ab-1/3*u_ab^2) 	# 2u-u^2
+	C_b		<- 2*(2/3*u_ab-1/3*u_ab^2)	# 4/3u-2/3u^2
+	#
+	n		<- c(0:(nrow(v)-1))
+	v$S_exp	<- r^n+(C*(r^n-1))/(r-1)
+	v$I_exp	<- r^n+(C_a*(r^n-1))/(r-1)
+	v$E_exp	<- r^n+(C_b*(r^n-1))/(r-1)
+	#
+	# Plot decay over time:
+	if(!plotinverse)
+		{
+		plot(v$S,ylim=c(0,1),type='l',lwd=2)
+		lines(v$I,lty=2,lwd=2,col="grey50")
+		lines(v$E,lty=3,lwd=2,col="grey50")
+		legend("topright",lty=c(1,2,3),legend=c("S","Ts","Tv"),cex=1.5,bty='n',col=c("black","grey50","grey50"))
+		if(add2state){lines(v$S_old,col="red",lwd=2,lty=2)}
+		}else{
+		plot(v$S,ylim=c(0,1),type='l',lwd=2)
+		lines(1-v$I,lty=2,lwd=2,col="grey50")
+		lines(1-v$E,lty=3,lwd=2,col="grey50")
+		legend("bottomleft",lty=c(1,2,3),legend=c("S","1-Ts","1-Tv"),cex=1.5,bty='n',col=c("black","grey50","grey50"))
+		if(add2state){lines(v$S_old,col="red",lwd=2,lty=2)}
+		#lines(v$S_exp,col="red",lwd=2,lty=1)
+		#lines(v$I_exp,col="red",lwd=2,lty=2)
+		#lines(v$E_exp,col="red",lwd=2,lty=3)
+		}
+	# Note: v$S_old and v$S are (roughly) similar when is around K = 0.5 (anywhere between K = 0.5 and K = 1/3 ?). The bigger K, the bigger the deviation.   
+	#
+	v$S_diff	<- v$S_exp-(v$S)
+	v$I_diff	<- v$I_exp-(1-v$I)
+	v$E_diff	<- v$E_exp-(1-v$E)
+	if(plotdiff)
+		{
+		mymin	<- min(v$E_diff)
+		plot(v$S_diff,lwd=2,ylim=c(mymin,-mymin),type='l')
+		lines(v$I_diff,lwd=2,lty=2)
+		lines(v$E_diff,lwd=2,lty=3)
+		lines(v$E_diff+v$I_diff,col="red",lwd=2)
+		legend("topright",lty=c(1,2,3),legend=c("S","I","E"),cex=1.5,bty='n')
+		}
+	Siterative	<- v
+	}
+
+mcart_mcdiagram<-function(export=NULL,mycol="grey80",yshift=0,plot_ab=FALSE,myfont=4,mycex=1.25)
+	{
+	# in principle I could use markov chain package, but does not allow variables as transition probabilities, so not an option 
+	my_text_size 		<- 1.25
+	segment_size		<- 0.1
+	width_height_ratio	<- 1.65
+	xvector				<- c(0.2,0.5,0.8)
+	yvector				<- c(0.8+yshift,0.2+yshift,0.8+yshift)
+	pos					<- cbind(xvector,yvector)
+	mypos				<<- pos
+	my_label			<- c("p_Ts\ntransition-type\ndifference","p_Tv\ntransversion-type\ndifferences","p_S\nsequence\nsimilarity")
+	#
+	if(!is.null(export))
+		{
+		plotname	<- ifelse(plot_ab,"MC.diagram.3states.absolute","MC.diagram.3states.relative")
+		if(export=="pdf"){pdf(paste(plotname,"pdf",sep="."),onefile=FALSE,height=6,width=8)}
+		if(export=="emf"){emf(paste(plotname,"emf",sep="."))}
+		}
+	openplotmat()	# depends on package diagram
+	plot(pos,xlim=c(0,1),ylim=c(0,1),type='n',xaxt='n',yaxt='n',ann=FALSE,bty='n')
+	straightarrow (from = c(0.375,0.3+yshift), to = c(0.15,0.68+yshift),arr.pos=1)
+	straightarrow (from = c(0.625,0.3+yshift), to = c(0.85,0.68+yshift),arr.pos=1)
+	straightarrow (from = c(0.2,0.7+yshift), to = c(0.425,0.32+yshift),arr.pos=1)
+	straightarrow (from = c(0.8,0.7+yshift), to = c(0.575,0.32+yshift),arr.pos=1)
+	straightarrow (from = c(0.375,0.775+yshift), to = c(0.625,0.775+yshift),arr.pos=1)
+	straightarrow (from = c(0.625,0.825+yshift), to = c(0.375,0.825+yshift),arr.pos=1)
+	#
+	curvedarrow(from=c(0.25,0.7),to=c(0.375,0.725),arr.pos=1,curve=0.75)
+	curvedarrow(from=c(0.625,0.725),to=c(0.75,0.675),arr.pos=1,curve=0.6)
+	curvedarrow(from=c(0.55,0.31),to=c(0.45,0.32),arr.pos=1,curve=1)
+	#
+	for(i in c(1:length(my_label)))
+		{
+		textrect(mid = pos[i,], shadow.size = 0, radx = segment_size*width_height_ratio, rady = segment_size, lab = my_label[i], cex = my_text_size, box.col = mycol)
+		}
+	#
+	if(plot_ab)
+		{
+		text(x=0.5,y=0.85+yshift,labels="2a(1-a-b)+1/2b^2",cex=1,font=1,adj=0.5)			# Ts to S
+		text(x=0.5,y=0.75+yshift,labels="2a(1-a-b)+1/2b^2",cex=1,font=1,adj=0.5)			# S to Ts
+		#
+		text(x=0.3,y=0.53+yshift,labels="2b(1-a-b)+2ab",cex=1,font=1,adj=0)					# Ts to Tv
+		text(x=0.275,y=0.45+yshift,labels="b(1-a-b)+ab",cex=1,font=1,adj=1)				# Tv to Ts
+		#
+		text(x=0.7,y=0.53+yshift,labels="2b(1-a-b)+2ab",cex=1,font=1,adj=1)					# S to Tv
+		text(x=0.725,y=0.45+yshift,labels="b(1-a-b)+ab",cex=1,font=1,adj=0)				# Tv to S
+		#
+		#text(x=0.5,y=0.43+yshift,labels="(1-a-b)^2+a^2+b^2+2a(1-a-b)",cex=1,font=1,adj=0.5)# Tv to Tv
+		#text(x=0.35,y=0.66+yshift,labels="(1-a-b)^2+a^2+1/2b^2",cex=1,font=1,adj=0.5)		# Ts to Ts
+		#text(x=0.7,y=0.61+yshift,labels="(1-a-b)^2+a^2+1/2b^2",cex=1,font=1,adj=1)			# S to S
+		#
+		}else{
+		text(x=0.5,y=0.85+yshift,labels="B",cex=mycex,font=myfont,adj=0.5)					# Ts to S
+		text(x=0.5,y=0.75+yshift,labels="B",cex=mycex,font=myfont,adj=0.5)					# S to Ts
+		#
+		text(x=0.315,y=0.525+yshift,labels="2A",cex=mycex,font=myfont,adj=0)					# Ts to Tv
+		text(x=0.275,y=0.45+yshift,labels="A",cex=mycex,font=myfont,adj=1)					# Tv to Ts
+		#
+		text(x=0.69,y=0.53+yshift,labels="2A",cex=mycex,font=myfont,adj=1)					# S to Tv
+		text(x=0.725,y=0.45+yshift,labels="A",cex=mycex,font=myfont,adj=0)					# Tv to S
+		#
+		text(x=0.5,y=0.44+yshift,labels="1-2A",cex=mycex,font=myfont,adj=0.5)				# Tv to Tv
+		text(x=0.41,y=0.6+yshift,labels="1-2A-B",cex=mycex,font=myfont,adj=0.5)			# Ts to Ts
+		text(x=0.59,y=0.6+yshift,labels="1-2A-B",cex=mycex,font=myfont,adj=0.5)			# S to S
+		#
+		text(x=0.5,y=0.08,labels="A = b-b^2",cex=1,font=3)
+		text(x=0.5,y=0.04,labels="B = 2Kb-(2K^2+2K-1/2)b^2 ",cex=1,font=3)
+		text(x=0.5,y=0,labels="K = transition/transversion ratio; b = transversion rate",cex=1,font=3)
+		}
+	#
+	if(!is.null(export))
+		{
+		dev.off()
+		cat("Exported diagram to directory:",sep="\n")
+		cat(getwd(),sep="\n")
+		}
+	}
+
+
+
+mcart_mcdiagram_2states<-function(export=NULL,mycol="grey80",yshift=0.075)
+	{
+	#install.packages('diagram')
+	#library('diagram')
+	my_text_size 		<- 1.5
+	segment_size		<- 0.1
+	width_height_ratio	<- 2.5
+	xvector				<- c(0.5,0.5)
+	yvector				<- c(0.85+yshift,0.2+yshift)
+	pos					<- cbind(xvector,yvector)
+	mypos				<<- pos
+	my_label			<- c("D\npop1 != pop2","S\npop1 == pop2")
+	# plot:
+	graphics.off()	
+	if(!is.null(export))
+		{
+		if(export=="pdf"){pdf("MC.diagram.2states.pdf",onefile=FALSE,height=6,width=8)}
+		if(export=="emf"){emf("MC.diagram.2states.emf")}
+		}
+	openplotmat()	# depends on package diagram
+	plot(pos,xlim=c(0,1),ylim=c(0,1),type='n',xaxt='n',yaxt='n',ann=FALSE,bty='n')
+	straightarrow (from = c(0.525,0.75+yshift), to = c(0.525,0.31+yshift),arr.pos=1)
+	straightarrow (from = c(0.475,0.30+yshift), to = c(0.475,0.74+yshift),arr.pos=1)
+	for(i in c(1:length(my_label)))
+		{
+		textrect(mid = pos[i,], shadow.size = 0, radx = segment_size*width_height_ratio, rady = segment_size, lab = my_label[i], cex = my_text_size, box.col = mycol)
+		}
+	# same to different:
+	text(x=0.45,y=0.675+yshift,labels="u(1-u)",cex=1.25,font=2,adj=1)
+	text(x=0.45,y=0.575+yshift,labels="u(1-u)",cex=1.25,font=2,adj=1)
+	text(x=0.45,y=0.475+yshift,labels="1/3u^2",cex=1.25,font=2,adj=1)
+	text(x=0.45,y=0.375+yshift,labels="(k) 2u-(5/3)u^2",cex=1.5,font=2,adj=1)
+	text(x=0.275,y=0.675+yshift,labels="m in pop1 only",cex=1,font=2,adj=1)
+	text(x=0.275,y=0.575+yshift,labels="m in pop2 only",cex=1,font=2,adj=1)
+	text(x=0.275,y=0.475+yshift,labels="m in pop1 != m in pop2",cex=1,font=2,adj=1)
+	# different to same:
+	text(x=0.55,y=0.675+yshift,labels="1/3u(1-u)",cex=1.25,font=2,adj=0)
+	text(x=0.55,y=0.575+yshift,labels="1/3u(1-u)",cex=1.25,font=2,adj=0)
+	text(x=0.55,y=0.475+yshift,labels="1/2u^2",cex=1.25,font=2,adj=0)
+	text(x=0.55,y=0.375+yshift,labels="2/3u-(1/3)u^2 (C)",cex=1.5,font=2,adj=0)
+	text(x=0.725,y=0.675+yshift,labels="m in pop1 to pop2",cex=1,font=2,adj=0)
+	text(x=0.725,y=0.575+yshift,labels="m in pop2 to pop1",cex=1,font=2,adj=0)
+	text(x=0.725,y=0.475+yshift,labels="m in pop1 == m in pop2",cex=1,font=2,adj=0)
+	# overall formulas:
+	text(x=0.5,y=0.125,labels="S[i+1] = S[i] + C(1-S[i]) - kS[i]",cex=1.5,font=2)
+	text(x=0.5,y=0.05,labels="S[n] = S[0]r^n + C(r^(n-1))/(r-1)",cex=1.5,font=2)
+	text(x=0.5,y=0.0,labels="r = 1 - k + C",cex=1.35,font=2)
+	#text(x=0.5,y=0.5,labels="pairwise approach",cex=1.5,font=2)
+	if(!is.null(export)){dev.off()}
+	}
