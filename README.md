@@ -10,14 +10,17 @@ Users of MCART can call genotypes using their own preferred caller, or make use 
 If using the MCART_bam2vcf.sh script, users need to edit the user-defined section (e.g. define the paths to bcftools and samtools, and to the bam file and reference genome). To run, make the script an executable (chmod +x MCART_bam2vcf.sh script), and afterwards execute: 
 
 ./MCART_bam2vcf.sh script 
+
 The script runs bcftools mpileup parallel (simultaneously for roughly equally sized chunks of the genome) and typically requires a day or two to generate the final vcf-file, called ‘allsites.vcf.gz’.
 
 To subsequently count the numbers and proportions of single nucleotide variants (SNVs), divided over transition-type and transversion-type differences, execute: 
 
-./MCART_countTsTv.sh        
+./MCART_countTsTv.sh   
+
 This script will generate a file called ‘tstv_counts.txt’. 
 
 To estimate TMRCA and generate output plots, execute in R:
 
 source(“MCART.txt”)
+
 run_mcart(tstv_file=‘tstv_counts.txt’,s_0=0.9987,mut_rate=2.5*10^-8, ngen=400000)
