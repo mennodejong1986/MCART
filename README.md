@@ -11,7 +11,8 @@ If using the MCART_bam2vcf.sh script, users need to edit the user-defined sectio
 ./MCART_bam2vcf.sh script 
 The script runs bcftools mpileup parallel (simultaneously for roughly equally sized chunks of the genome) and typically requires a day or two to generate the final vcf-file, called ‘allsites.vcf.gz’.
 
-To subsequently count the numbers and proportions of single nucleotide variants (SNVs), divided over transition-type and transversion-type differences, execute: ./MCART_countTsTv.sh        
+To subsequently count the numbers and proportions of single nucleotide variants (SNVs), divided over transition-type and transversion-type differences, execute: 
+./MCART_countTsTv.sh        
 This script will generate a file called ‘tstv_counts.txt’. 
 
 To estimate TMRCA and generate output plots, execute in R:
