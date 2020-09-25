@@ -9,7 +9,7 @@ Users of MCART can call genotypes using their own preferred caller, or make use 
 
 If using the MCART_bam2vcf.sh script, users need to edit the user-defined section (e.g. define the paths to bcftools and samtools, and to the bam file and reference genome). To run, make the script an executable (chmod +x MCART_bam2vcf.sh script), and afterwards execute: 
 
-./MCART_bam2vcf.sh script 
+./MCART_bam2vcf.sh 
 
 The script runs bcftools mpileup parallel (simultaneously for roughly equally sized chunks of the genome) and typically requires a day or two to generate the final vcf-file, called ‘allsites.vcf.gz’.
 
